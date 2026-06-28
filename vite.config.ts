@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // Served from https://hohoyo234.github.io/Powerpoint/ (GitHub Pages project site).
-  base: '/Powerpoint/',
+  // Served from https://hohoyo234.github.io/worship-ppt-maker/ (GitHub Pages project site).
+  base: '/worship-ppt-maker/',
   plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: {
