@@ -6,6 +6,48 @@ import {
 
 type Filter = 'all' | 'lyrics' | 'titleOnly';
 
+// Filler words people use when they only half-remember a song ("那个好像有个…什么
+// 什么的爱…"). We drop these and keep the meaningful fragments, then require every
+// fragment to appear somewhere in the song — so vague, gap-filled queries still hit.
+const FILLER = [
+  '什么什么', '什麼什麼', '什么', '甚麼', '什麼', '那个', '那個', '这个', '這個', '哪个', '哪個',
+  '好像', '有一个', '有一個', '有个', '有個', '一首', '那首', '这首', '這首', '就是', '然后', '然後',
+  '记得', '記得', '嗯', '额', '呃', '啊', 'xxx', 'xx', '***', '。。。', '...',
+];
+
+// Particles that vague speech glues onto a remembered fragment ("低谷的", "去吧").
+// Stripped from each token's ends so the core fragment still matches.
+const stripParticles = (t: string) => t.replace(/^[的了地得着啊呀呢吗嘛吧哦噢]+|[的了地得着啊呀呢吗嘛吧哦噢]+$/g, '');
+
+function searchTokens(q: string): string[] {
+  let s = (q || '').toLowerCase();
+  for (const f of FILLER) s = s.split(f).join(' ');
+  s = s.replace(/[\s,，。.、!！?？:：;；…·\-—_/()（）"'’]+/g, ' ');
+  return s.split(' ').map((t) => stripParticles(t.trim())).filter(Boolean);
+}
+
+function songSearchText(s: LibrarySong): string {
+  return [s.title, s.titleSc, s.englishTitle, s.producer, s.composer, s.lyricist, s.publication, s.key, s.lyrics, s.lyricsSc, s.englishLyrics]
+    .filter(Boolean).join('\n').toLowerCase();
+}
+
+// 0 = no match. Higher = better. Requires ALL tokens present; weights title hits and
+// a contiguous (gap-free) match highest so exact-ish queries float to the top.
+function fuzzyScore(s: LibrarySong, tokens: string[], joined: string): number {
+  if (!tokens.length) return 1;
+  const text = songSearchText(s);
+  const titleText = [s.title, s.titleSc, s.englishTitle].filter(Boolean).join(' ').toLowerCase();
+  const titleSquished = titleText.replace(/\s+/g, '');
+  if (joined && titleSquished.includes(joined)) return 1000;
+  let score = 0;
+  for (const t of tokens) {
+    if (!text.includes(t)) return 0;
+    score += titleText.includes(t) ? 12 : 3;
+  }
+  if (joined && text.replace(/\s+/g, '').includes(joined)) score += 25;
+  return score;
+}
+
 export default function LibraryMode({ modeToggle }: { modeToggle: React.ReactNode }) {
   const [songs, setSongs] = useState<LibrarySong[]>(() => loadLibrary());
   const [q, setQ] = useState('');
@@ -27,15 +69,20 @@ export default function LibraryMode({ modeToggle }: { modeToggle: React.ReactNod
   const flash = (m: string, ms = 2400) => { setStatus(m); window.clearTimeout((flash as any)._t); (flash as any)._t = window.setTimeout(() => setStatus(null), ms); };
 
   const filtered = useMemo(() => {
-    const nq = q.toLowerCase().trim();
-    return songs.filter((s) => {
-      const hasLyrics = !!(s.lyrics || '').trim();
+    const base = songs.filter((s) => {
+      const hasLyrics = !!((s.lyrics || s.lyricsSc || '').trim());
       if (filter === 'lyrics' && !hasLyrics) return false;
       if (filter === 'titleOnly' && hasLyrics) return false;
-      if (!nq) return true;
-      return [s.title, s.titleSc, s.englishTitle, s.producer, s.composer, s.lyricist, s.publication, s.key, s.lyrics, s.lyricsSc, s.englishLyrics]
-        .some((f) => (f || '').toLowerCase().includes(nq));
+      return true;
     });
+    const tokens = searchTokens(q);
+    if (!tokens.length) return base;
+    const joined = tokens.join('');
+    return base
+      .map((s) => ({ s, score: fuzzyScore(s, tokens, joined) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.s);
   }, [songs, q, filter]);
 
   const stats = useMemo(() => ({ total: songs.length, withLyrics: songs.filter((s) => (s.lyrics || '').trim()).length }), [songs]);
@@ -102,7 +149,7 @@ export default function LibraryMode({ modeToggle }: { modeToggle: React.ReactNod
           </div>
           <div className="flex items-center gap-2 bg-white rounded-2xl border border-[#E5E0DA]/60 px-4 h-12 shadow-sm w-full sm:w-72">
             <span className="material-symbols-outlined text-outline/30 text-[18px]">search</span>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜歌名 / 歌词 / 制作人" className="flex-1 bg-transparent outline-none text-sm font-semibold" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜歌名 / 歌词片段（记不全也行）" className="flex-1 bg-transparent outline-none text-sm font-semibold" />
           </div>
         </div>
 

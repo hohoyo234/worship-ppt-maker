@@ -184,6 +184,75 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
   const bgStyle = (bg: BgOption): React.CSSProperties =>
     bg?.url ? { backgroundImage: `url(${bg.url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : { backgroundColor: `#${bg?.color || '064E3B'}` };
 
+  // Font size in the preview, expressed in container-query-width units so it
+  // scales with the slide and mirrors the .pptx exactly. A point size of P on a
+  // 10"-wide design space is P/720 of the slide width = (P/7.2)cqw.
+  const cqw = (pt: number) => `${(pt / 7.2).toFixed(2)}cqw`;
+
+  // Open a printable A4 lyric sheet (all songs flow continuously). The user can
+  // adjust the font size / columns live, then print or save as PDF.
+  const openLyricSheet = () => {
+    const valid = songs.filter((s) => s.title.trim() || s.lyrics.trim());
+    if (!valid.length) { flash('❌ 请先输入歌名或歌词'); return; }
+    const esc = (t: string) => (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const blocks = valid.map((s, i) => {
+      const exp = expandSongSections(s.lyrics || '', s.englishLyrics || '');
+      const cn = exp.lyrics.split('\n');
+      const en = exp.english.split('\n').filter((l) => l.trim());
+      let ti = 0;
+      const lines: string[] = [];
+      for (const l of cn) {
+        if (!l.trim()) { lines.push('<div class="gap"></div>'); continue; }
+        const e = en[ti++] || '';
+        lines.push(`<div class="ln"><span class="cn">${esc(l)}</span>${e ? `<span class="en">${esc(e)}</span>` : ''}</div>`);
+      }
+      return `<section class="song"><h2>${i + 1}. ${esc(s.title || '未命名')}${s.englishTitle ? ` <small>${esc(s.englishTitle)}</small>` : ''}</h2>${lines.join('')}</section>`;
+    }).join('');
+    const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>歌词单 — ${esc(deckName || 'Worship')}</title>
+<style>
+  :root{ --size:16pt; --cols:1; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Microsoft YaHei','PingFang SC','Heiti SC',sans-serif;color:#111;background:#eceae7}
+  .bar{position:sticky;top:0;z-index:5;display:flex;gap:18px;align-items:center;padding:12px 22px;background:#1a1a1a;color:#fff;font-size:13px;flex-wrap:wrap}
+  .bar strong{font-size:14px;letter-spacing:.05em}
+  .bar label{display:flex;gap:8px;align-items:center;cursor:pointer}
+  .bar input[type=range]{accent-color:#10b981}
+  .bar select{border-radius:6px;padding:3px 6px}
+  .bar button{margin-left:auto;background:#10b981;color:#fff;border:0;border-radius:9px;padding:9px 18px;font-weight:800;cursor:pointer}
+  .bar button:hover{background:#059669}
+  .page{background:#fff;width:21cm;margin:18px auto;padding:1.5cm 1.5cm;box-shadow:0 3px 16px rgba(0,0,0,.15)}
+  .doc{columns:var(--cols);column-gap:1cm}
+  .song{break-inside:avoid;margin:0 0 16px}
+  .song h2{font-size:calc(var(--size) * 1.22);margin:0 0 6px;border-bottom:2px solid #10b981;padding-bottom:3px}
+  .song h2 small{font-weight:500;color:#6b7280;font-size:calc(var(--size) * 0.75)}
+  .ln{font-size:var(--size);line-height:1.5;margin:1px 0}
+  .ln .en{display:block;font-size:calc(var(--size) * 0.62);color:#555;font-style:italic;line-height:1.25}
+  .gap{height:calc(var(--size) * 0.7)}
+  @media print{ .bar{display:none} body{background:#fff} .page{box-shadow:none;margin:0;width:auto;padding:0} }
+  @page{size:A4;margin:1.4cm}
+</style></head>
+<body>
+<div class="bar">
+  <strong>📄 歌词单 · ${valid.length} 首</strong>
+  <label>字号 <input id="sz" type="range" min="9" max="30" value="16"><span id="szv">16</span>pt</label>
+  <label>栏数 <select id="cols"><option value="1">1 栏</option><option value="2">2 栏</option></select></label>
+  <label><input id="tr" type="checkbox" checked> 显示翻译</label>
+  <button onclick="window.print()">🖨 打印 / 存为 PDF</button>
+</div>
+<div class="page"><div class="doc">${blocks}</div></div>
+<script>
+  var r=document.documentElement,sz=document.getElementById('sz'),szv=document.getElementById('szv');
+  sz.oninput=function(){r.style.setProperty('--size',sz.value+'pt');szv.textContent=sz.value;};
+  document.getElementById('cols').onchange=function(e){r.style.setProperty('--cols',e.target.value);};
+  document.getElementById('tr').onchange=function(e){var d=e.target.checked?'':'none';var ns=document.querySelectorAll('.en');for(var i=0;i<ns.length;i++)ns[i].style.display=d;};
+<\/script>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=900,height=1040');
+    if (!w) { flash('❌ 请允许弹出窗口后重试'); return; }
+    w.document.write(html);
+    w.document.close();
+  };
+
   return (
     <div className="min-h-full flex flex-col">
       <header className="sticky top-0 z-30 bg-[#F4F1EE]/85 backdrop-blur-xl border-b border-[#E5E0DA]/70">
@@ -194,6 +263,10 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
               <span className="material-symbols-outlined text-outline/30 text-[18px]">edit_document</span>
               <input value={deckName} onChange={(e) => setDeckName(e.target.value)} placeholder="文件名" className="bg-transparent outline-none text-xs font-bold w-36" />
             </div>
+            <button onClick={openLyricSheet} className="h-12 px-4 rounded-2xl bg-white border border-[#E5E0DA]/60 text-[11px] font-black uppercase tracking-widest hover:border-emerald-400 transition-all shadow-sm flex items-center gap-2" title="把歌词排成 A4 歌词单，可打印或存 PDF">
+              <span className="material-symbols-outlined text-lg">print</span>
+              <span className="hidden sm:inline">歌词单</span>
+            </button>
             <button onClick={handleGenerate} disabled={isGenerating} className="h-12 px-6 rounded-2xl bg-black text-white text-[11px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-xl shadow-black/10 flex items-center gap-2 disabled:opacity-50">
               <span className={`material-symbols-outlined text-lg ${isGenerating ? 'animate-spin' : ''}`}>{isGenerating ? 'progress_activity' : 'download'}</span>
               {isGenerating ? '生成中' : '生成 PPT'}
@@ -244,23 +317,23 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
             </div>
             <div className="p-4 max-h-[70vh] overflow-y-auto no-scrollbar space-y-3">
               {previewSlides.map((sl, idx) => (
-                <div key={idx} className="relative rounded-xl overflow-hidden flex items-center justify-center text-center p-6" style={{ ...bgStyle(sl.bg), aspectRatio: '16/9' }}>
+                <div key={idx} className="relative rounded-xl overflow-hidden flex items-center justify-center text-center p-6" style={{ ...bgStyle(sl.bg), aspectRatio: '16/9', containerType: 'inline-size' }}>
                   {sl.bg?.url && <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-black/50 to-black/40" />}
                   <div className="relative z-10 w-full space-y-1.5">
                     {sl.type === 'cover' ? (
                       <>
                         <p className="text-[9px] font-black uppercase tracking-widest" style={{ color: sl.pc.lc, opacity: 0.55 }}>SLIDE {idx + 1}</p>
-                        <h2 className="text-3xl font-serif font-black" style={{ color: sl.pc.lc, textShadow: sl.shadowCss }}>{sl.title || '未命名'}</h2>
-                        {sl.sub && <p className="text-base font-medium" style={{ color: sl.pc.tc, textShadow: sl.shadowCss }}>{sl.sub}</p>}
+                        <h2 className="font-serif font-black leading-tight" style={{ fontSize: cqw(48), color: sl.pc.lc, textShadow: sl.shadowCss }}>{sl.title || '未命名'}</h2>
+                        {sl.sub && <p className="font-medium" style={{ fontSize: cqw(24), color: sl.pc.tc, textShadow: sl.shadowCss }}>{sl.sub}</p>}
                       </>
                     ) : (
                       <>
                         <p className="text-[8px] font-black uppercase tracking-widest text-white/25">SLIDE {idx + 1}</p>
                         {(sl.lines || []).map((ln, j) => (
                           <div key={j}>
-                            {settings.enablePinyin && toPinyin(ln.cn) && <p className="text-[11px]" style={{ color: sl.pc.lc, textShadow: sl.shadowCss }}>{toPinyin(ln.cn)}</p>}
-                            {ln.cn && <p className="text-xl font-serif font-black leading-snug" style={{ color: sl.pc.lc, textShadow: sl.shadowCss }}>{ln.cn}</p>}
-                            {ln.en && <p className="text-xs italic" style={{ color: sl.pc.tc, textShadow: sl.shadowCss }}>{ln.en}</p>}
+                            {settings.enablePinyin && toPinyin(ln.cn) && <p style={{ fontSize: cqw(settings.lyricFontSize * 0.45), color: sl.pc.lc, textShadow: sl.shadowCss }}>{toPinyin(ln.cn)}</p>}
+                            {ln.cn && <p className="font-serif font-black leading-snug" style={{ fontSize: cqw(settings.lyricFontSize), color: sl.pc.lc, textShadow: sl.shadowCss }}>{ln.cn}</p>}
+                            {ln.en && <p className="italic leading-snug" style={{ fontSize: cqw(settings.translationFontSize), color: sl.pc.tc, textShadow: sl.shadowCss }}>{ln.en}</p>}
                           </div>
                         ))}
                       </>
