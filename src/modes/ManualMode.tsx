@@ -348,7 +348,7 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
 
         <section className="lg:col-span-3 space-y-5">
           <Panel title="背景">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2 max-h-[360px] overflow-y-auto no-scrollbar pr-0.5">
               {allBgs.map((bg) => (
                 <button key={bg.id} onClick={() => set('selectedBg', bg)} title={bg.label} className={`relative aspect-video rounded-xl overflow-hidden border-2 transition-all ${settings.selectedBg.id === bg.id ? 'border-emerald-500 scale-105 shadow' : 'border-transparent hover:border-emerald-500/40'}`} style={bgStyle(bg)}>
                   {bg.url && <img src={bg.url} alt={bg.label} className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
