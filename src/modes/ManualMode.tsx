@@ -8,7 +8,7 @@ import {
 } from '../lib/pptTheme';
 import { generateDeck, downloadBlob, toPinyin, type BgOption, type SongInput, type DeckSettings } from '../lib/pptGenerator';
 import { BACKGROUND_OPTIONS, pollinationsBg } from '../lib/backgrounds';
-import { saveToLibrary } from '../lib/songLibrary';
+import { saveToLibrary, searchLibraryMulti, type LibrarySong } from '../lib/songLibrary';
 
 const LS_KEY = 'worship_ppt_maker_v1';
 
@@ -100,6 +100,16 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
     const s = newSong();
     setSongs((prev) => [...prev, s]);
     setActiveId(s.id);
+  };
+
+  // Search the song library and add a chosen song to the setlist.
+  const [songQuery, setSongQuery] = useState('');
+  const songResults = useMemo(() => searchLibraryMulti(songQuery), [songQuery]);
+  const addFromLibrary = (e: LibrarySong) => {
+    const s = newSong({ title: e.title, englishTitle: e.englishTitle || '', lyrics: e.lyrics || '', englishLyrics: e.englishLyrics || '' });
+    setSongs((prev) => [...prev, s]);
+    setActiveId(s.id);
+    setSongQuery('');
   };
 
   const removeSong = (id: string) => {
@@ -281,8 +291,30 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
             <div className="flex items-center justify-between mb-3 px-2">
               <h2 className="text-[10px] font-black uppercase tracking-[0.25em] text-outline/50">歌单 · {songs.length} 首</h2>
               <button onClick={addSong} className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 text-[11px] font-black uppercase tracking-wider">
-                <span className="material-symbols-outlined text-[18px]">add</span>加歌
+                <span className="material-symbols-outlined text-[18px]">add</span>空白加歌
               </button>
+            </div>
+            <div className="relative mb-3">
+              <div className="flex items-center gap-2 bg-[#F9F7F5] rounded-xl border border-[#E5E0DA]/60 px-3 h-10 focus-within:border-emerald-500">
+                <span className="material-symbols-outlined text-outline/30 text-[18px]">search</span>
+                <input value={songQuery} onChange={(e) => setSongQuery(e.target.value)} placeholder="从歌库搜歌加进来…" className="flex-1 bg-transparent outline-none text-sm font-semibold" />
+                {songQuery && <button onClick={() => setSongQuery('')} className="material-symbols-outlined text-outline/40 text-[18px] hover:text-[#2C2C2C]">close</button>}
+              </div>
+              {songQuery && (
+                <div className="absolute z-20 left-0 right-0 mt-1.5 bg-white rounded-xl border border-[#E5E0DA]/70 shadow-xl max-h-64 overflow-y-auto no-scrollbar">
+                  {songResults.length === 0 && <div className="px-3 py-3 text-[12px] text-outline/40 font-semibold">歌库没有匹配的歌</div>}
+                  {songResults.map((r) => (
+                    <button key={r.id} onClick={() => addFromLibrary(r)} className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-emerald-50 text-left transition-colors">
+                      <span className="material-symbols-outlined text-emerald-500 text-[18px]">add_circle</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-bold text-[#2C2C2C] truncate">{r.title || '未命名'}</span>
+                        {r.englishTitle && <span className="block text-[11px] text-outline/40 font-medium truncate">{r.englishTitle}</span>}
+                      </span>
+                      {!(r.lyrics || '').trim() && <span className="text-[9px] font-black uppercase text-amber-600 shrink-0">无词</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="space-y-1.5 max-h-48 overflow-y-auto no-scrollbar">
               {songs.map((s, i) => (

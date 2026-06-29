@@ -296,6 +296,27 @@ export function libraryStats() {
   return { total: lib.length, withLyrics: lib.filter((e) => (e.lyrics || '').trim()).length };
 }
 
+// Ranked multi-result search for "search the library to add a song" pickers.
+// Matches by title (exact → substring → English) with a lyric/keyword fallback.
+export function searchLibraryMulti(query: string, limit = 8): LibrarySong[] {
+  const q = (query || '').toLowerCase().trim();
+  if (!q) return [];
+  const tokens = q.split(/[\s,，。、]+/).map((t) => t.trim()).filter(Boolean);
+  const scored: { s: LibrarySong; score: number }[] = [];
+  for (const s of loadLibrary()) {
+    const title = (s.title || '').toLowerCase();
+    const titleSc = (s.titleSc || '').toLowerCase();
+    const eng = (s.englishTitle || '').toLowerCase();
+    const text = [title, titleSc, eng, (s.composer || '').toLowerCase(), (s.lyrics || '').toLowerCase(), (s.lyricsSc || '').toLowerCase()].join('\n');
+    let score = 0;
+    if (title === q || titleSc === q) score = 100;
+    else if (title.includes(q) || titleSc.includes(q) || eng.includes(q)) score = 70;
+    else if (tokens.every((t) => text.includes(t))) score = 40;
+    if (score) scored.push({ s, score });
+  }
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit).map((x) => x.s);
+}
+
 // Fuzzy-match a one-line query (a title, a lyric line, or a producer name)
 // against the local library. Returns the best match + a score (0 = no match).
 export function searchLibrary(query: string): { song: LibrarySong; score: number } | null {

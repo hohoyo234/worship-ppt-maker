@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { expandSongSections, paginateLyrics } from '../lib/pptTheme';
+import { expandSongSections, paginateLyrics, resolveSlideColors, previewShadow } from '../lib/pptTheme';
 import type { BgOption, SongInput, DeckSettings } from '../lib/pptGenerator';
 import { BACKGROUND_OPTIONS, pollinationsBg } from '../lib/backgrounds';
 import { searchLibrary, saveToLibrary, libraryStats } from '../lib/songLibrary';
@@ -290,10 +290,20 @@ function ConfirmCard({ index, song, onPatch, onStructure, onReRoll, onPickPreset
   onPickPreset: (id: string, bg: BgOption) => void;
 }) {
   const [bgOpen, setBgOpen] = useState(false);
-  const slideCount = useMemo(() => {
+  const preview = useMemo(() => {
     const exp = expandSongSections(song.lyrics || '', song.englishLyrics || '');
-    return paginateLyrics(exp.lyrics, exp.english, 2).length;
-  }, [song.lyrics, song.englishLyrics]);
+    const pages = paginateLyrics(exp.lyrics, exp.english, 2);
+    const pc = resolveSlideColors(song.bg, '#FFFFFF', '#A7F3D0');
+    const slides: { type: 'cover' | 'lyric'; title?: string; sub?: string; lines?: { cn: string; en: string }[] }[] = [
+      { type: 'cover', title: song.title, sub: song.englishTitle },
+    ];
+    pages.forEach((lines) => slides.push({ type: 'lyric', lines }));
+    return { slides, pc, count: pages.length };
+  }, [song.lyrics, song.englishLyrics, song.bg, song.title, song.englishTitle]);
+  const slideCount = preview.count;
+  // Preview font size in container-query units, mirroring the .pptx scaling.
+  const cqw = (pt: number) => `${(pt / 7.2).toFixed(2)}cqw`;
+  const shadow = previewShadow('medium');
 
   const bgStyle: React.CSSProperties = song.bg?.url
     ? { backgroundImage: `url(${song.bg.url})`, backgroundSize: 'cover', backgroundPosition: 'center' }
@@ -335,6 +345,36 @@ function ConfirmCard({ index, song, onPatch, onStructure, onReRoll, onPickPreset
             <button onClick={() => onStructure(song.id)} className="h-8 px-3 rounded-lg bg-[#F9F7F5] hover:bg-emerald-50 hover:text-emerald-600 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-all"><span className="material-symbols-outlined text-[14px]">music_note</span>自动分主歌副歌</button>
             <span className="text-[10px] text-outline/30 font-medium">用 [副歌] 标记重复段,只写一次自动展开</span>
           </div>
+        </div>
+      </div>
+
+      {/* Live slide preview (same look as 手动 mode) */}
+      <div className="mt-4 pt-4 border-t border-[#E5E0DA]/50">
+        <div className="flex items-center gap-2 mb-2 px-1">
+          <span className="material-symbols-outlined text-emerald-500 text-[16px]">slideshow</span>
+          <span className="text-[10px] font-black uppercase tracking-wider text-outline/50">实时预览 · {preview.slides.length} 页</span>
+        </div>
+        <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-1">
+          {preview.slides.map((sl, idx) => (
+            <div key={idx} className="relative shrink-0 w-44 aspect-video rounded-lg overflow-hidden flex items-center justify-center text-center p-3" style={{ ...bgStyle, containerType: 'inline-size' }}>
+              {song.bg?.url && <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-black/50 to-black/40" />}
+              <div className="relative z-10 w-full space-y-0.5">
+                {sl.type === 'cover' ? (
+                  <>
+                    <h3 className="font-serif font-black leading-tight" style={{ fontSize: cqw(48), color: preview.pc.lc, textShadow: shadow }}>{sl.title || '未命名'}</h3>
+                    {sl.sub && <p className="font-medium" style={{ fontSize: cqw(22), color: preview.pc.tc, textShadow: shadow }}>{sl.sub}</p>}
+                  </>
+                ) : (
+                  (sl.lines || []).map((ln, j) => (
+                    <div key={j}>
+                      {ln.cn && <p className="font-serif font-black leading-snug" style={{ fontSize: cqw(48), color: preview.pc.lc, textShadow: shadow }}>{ln.cn}</p>}
+                      {ln.en && <p className="italic leading-snug" style={{ fontSize: cqw(24), color: preview.pc.tc, textShadow: shadow }}>{ln.en}</p>}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
