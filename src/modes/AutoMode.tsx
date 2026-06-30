@@ -9,7 +9,7 @@ import { exportMerged, exportZip } from '../lib/exporter';
 import { openLyricSheet } from '../lib/lyricSheet';
 import { PreviewModal } from './SlidePreview';
 
-type Step = 'count' | 'entries' | 'confirm' | 'export';
+type Step = 'count' | 'entries' | 'confirm';
 
 interface AutoSong {
   id: string;
@@ -96,7 +96,8 @@ export default function AutoMode({ modeToggle }: { modeToggle: React.ReactNode }
         const s = hit.song;
         return {
           id: uid(), raw, title: s.title, englishTitle: s.englishTitle || '',
-          producer: s.producer || parsed.producer, lyrics: s.lyrics, englishLyrics: s.englishLyrics || '',
+          // Auto-split verse/chorus on import (idempotent: skips already-marked lyrics).
+          producer: s.producer || parsed.producer, lyrics: detectChorus(s.lyrics), englishLyrics: s.englishLyrics || '',
           // Reuse the background saved with this song last time; else derive one.
           bg: s.bg || deriveBackground(s.title, s.lyrics), matched: true,
         };
@@ -110,7 +111,7 @@ export default function AutoMode({ modeToggle }: { modeToggle: React.ReactNode }
     if (!next.length) { flash('❌ 请至少填写一首'); return; }
     setSongs(next);
     setStep('confirm');
-    flash(found ? `✅ 从歌库找到 ${found} 首，其余请手动补全` : 'ℹ️ 歌库暂无匹配，请手动填写歌词');
+    flash(found ? `✅ 从歌库找到 ${found} 首，已自动分主歌副歌，其余请手动补全` : 'ℹ️ 歌库暂无匹配，请手动填写歌词');
   };
 
   const patch = (id: string, p: Partial<AutoSong>) => setSongs((prev) => prev.map((s) => (s.id === id ? { ...s, ...p } : s)));
@@ -175,17 +176,17 @@ export default function AutoMode({ modeToggle }: { modeToggle: React.ReactNode }
         <div className="max-w-[1100px] mx-auto px-6 lg:px-10 h-20 flex items-center justify-between gap-4">
           {modeToggle}
           <div className="flex items-center gap-3">
-            {(step === 'confirm' || step === 'export') && songs.length > 0 && (
+            {step === 'confirm' && songs.length > 0 && (
               <button onClick={handleLyricSheet} className="h-11 px-4 rounded-2xl bg-white border border-[#E5E0DA]/60 text-[11px] font-black uppercase tracking-widest hover:border-emerald-400 transition-all shadow-sm flex items-center gap-2" title="打印歌词单">
                 <span className="material-symbols-outlined text-base">print</span>
                 <span className="hidden sm:inline">歌词单</span>
               </button>
             )}
             <div className="flex items-center gap-2">
-              {['count', 'entries', 'confirm', 'export'].map((s, i) => (
-                <div key={s} className={`flex items-center gap-2 ${i < 3 ? '' : ''}`}>
-                  <div className={`w-7 h-7 rounded-full text-[11px] font-black flex items-center justify-center transition-all ${step === s ? 'bg-emerald-600 text-white' : ['count', 'entries', 'confirm', 'export'].indexOf(step) > i ? 'bg-emerald-100 text-emerald-600' : 'bg-[#E5E0DA] text-outline/40'}`}>{i + 1}</div>
-                  {i < 3 && <div className="w-5 h-px bg-[#E5E0DA]" />}
+              {['count', 'entries', 'confirm'].map((s, i) => (
+                <div key={s} className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-full text-[11px] font-black flex items-center justify-center transition-all ${step === s ? 'bg-emerald-600 text-white' : ['count', 'entries', 'confirm'].indexOf(step) > i ? 'bg-emerald-100 text-emerald-600' : 'bg-[#E5E0DA] text-outline/40'}`}>{i + 1}</div>
+                  {i < 2 && <div className="w-5 h-px bg-[#E5E0DA]" />}
                 </div>
               ))}
             </div>
@@ -264,66 +265,60 @@ export default function AutoMode({ modeToggle }: { modeToggle: React.ReactNode }
           </div>
         )}
 
-        {/* STEP 3 — confirm & edit */}
+        {/* STEP 3 — confirm, edit & export (all on one page) */}
         {step === 'confirm' && (
           <div>
             <div className="text-center mb-8">
-              <h2 className="font-serif font-black text-3xl text-[#2C2C2C] mb-2">确认歌曲</h2>
-              <p className="text-outline/50 font-medium text-sm">检查歌词、自动分主歌副歌、确认背景。没找到的请补上歌词。</p>
+              <h2 className="font-serif font-black text-3xl text-[#2C2C2C] mb-2">确认并导出</h2>
+              <p className="text-outline/50 font-medium text-sm">已自动分主歌副歌、配好背景。检查歌词，设置好导出方式后一键生成。</p>
             </div>
             <div className="space-y-5">
               {songs.map((s, i) => <ConfirmCard key={s.id} index={i} song={s} onPatch={patch} onStructure={autoStructure} onReRoll={reRollBg} onPickPreset={pickPresetBg} />)}
             </div>
-            <div className="flex items-center justify-between mt-10">
-              <button onClick={() => setStep('entries')} className="text-outline/50 hover:text-[#2C2C2C] text-xs font-black uppercase tracking-wider flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">arrow_back</span>返回</button>
-              <button onClick={() => setStep('export')} className="h-13 px-8 py-4 rounded-2xl bg-black text-white text-sm font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-xl flex items-center gap-2">下一步:导出 <span className="material-symbols-outlined">arrow_forward</span></button>
-            </div>
-          </div>
-        )}
 
-        {/* STEP 4 — export options */}
-        {step === 'export' && (
-          <div className="max-w-xl mx-auto">
-            <div className="text-center mb-10">
-              <span className="material-symbols-outlined text-emerald-500 text-4xl mb-3">download_done</span>
-              <h2 className="font-serif font-black text-3xl text-[#2C2C2C] mb-2">导出设置</h2>
-              <p className="text-outline/50 font-medium text-sm">共 {songs.filter((s) => s.title || s.lyrics).length} 首。选择导出方式后一键生成。</p>
-            </div>
-
-            <div className="bg-white rounded-3xl border border-[#E5E0DA]/50 p-6 shadow-sm space-y-6">
-              <div className="space-y-2">
-                <span className="text-[10px] font-black uppercase tracking-widest text-outline/50">文件名</span>
-                <input value={deckName} onChange={(e) => setDeckName(e.target.value)} className="w-full bg-[#F9F7F5] rounded-xl px-4 py-3 text-sm font-bold outline-none border border-[#E5E0DA]/60 focus:border-emerald-500" />
+            {/* Export settings — directly below the confirm cards */}
+            <div className="max-w-xl mx-auto mt-10">
+              <div className="flex items-center gap-2 mb-4 px-1">
+                <span className="material-symbols-outlined text-emerald-500 text-2xl">download_done</span>
+                <h3 className="font-serif font-black text-2xl text-[#2C2C2C]">导出设置</h3>
+                <span className="text-[11px] text-outline/40 font-bold ml-auto">共 {songs.filter((s) => s.title || s.lyrics).length} 首</span>
               </div>
 
-              <OptionRow label="歌名封面页" desc="每首歌开头是否加一页大标题">
-                <Seg options={[{ v: true, t: '要歌名' }, { v: false, t: '不要' }]} value={withTitle} onChange={setWithTitle} />
-              </OptionRow>
-
-              <OptionRow label="合并 / 分开" desc="拼成一个 PPT,还是每首一个打包成 ZIP">
-                <Seg options={[{ v: true, t: '合并一个' }, { v: false, t: 'ZIP 分开' }]} value={merge} onChange={setMerge} />
-              </OptionRow>
-
-              <OptionRow label="背景" desc="每首用各自的背景,还是全套统一">
-                <Seg options={[{ v: false, t: '各自背景' }, { v: true, t: '统一背景' }]} value={unifyBg} onChange={setUnifyBg} />
-              </OptionRow>
-
-              <OptionRow label="尺寸" desc="宽屏 16:9 (1920×1080) 或标准 4:3">
-                <div className="flex bg-[#F9F7F5] rounded-xl p-1 shrink-0">
-                  {(['16:9', '4:3'] as const).map((v) => (
-                    <button key={v} onClick={() => setSlideSize(v)} className={`px-3.5 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${slideSize === v ? 'bg-emerald-600 text-white shadow' : 'text-outline/50 hover:text-[#2C2C2C]'}`}>{v}</button>
-                  ))}
+              <div className="bg-white rounded-3xl border border-[#E5E0DA]/50 p-6 shadow-sm space-y-6">
+                <div className="space-y-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-outline/50">文件名</span>
+                  <input value={deckName} onChange={(e) => setDeckName(e.target.value)} className="w-full bg-[#F9F7F5] rounded-xl px-4 py-3 text-sm font-bold outline-none border border-[#E5E0DA]/60 focus:border-emerald-500" />
                 </div>
-              </OptionRow>
+
+                <OptionRow label="歌名封面页" desc="每首歌开头是否加一页大标题">
+                  <Seg options={[{ v: true, t: '要歌名' }, { v: false, t: '不要' }]} value={withTitle} onChange={setWithTitle} />
+                </OptionRow>
+
+                <OptionRow label="合并 / 分开" desc="拼成一个 PPT,还是每首一个打包成 ZIP">
+                  <Seg options={[{ v: true, t: '合并一个' }, { v: false, t: 'ZIP 分开' }]} value={merge} onChange={setMerge} />
+                </OptionRow>
+
+                <OptionRow label="背景" desc="每首用各自的背景,还是全套统一">
+                  <Seg options={[{ v: false, t: '各自背景' }, { v: true, t: '统一背景' }]} value={unifyBg} onChange={setUnifyBg} />
+                </OptionRow>
+
+                <OptionRow label="尺寸" desc="宽屏 16:9 (1920×1080) 或标准 4:3">
+                  <div className="flex bg-[#F9F7F5] rounded-xl p-1 shrink-0">
+                    {(['16:9', '4:3'] as const).map((v) => (
+                      <button key={v} onClick={() => setSlideSize(v)} className={`px-3.5 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${slideSize === v ? 'bg-emerald-600 text-white shadow' : 'text-outline/50 hover:text-[#2C2C2C]'}`}>{v}</button>
+                    ))}
+                  </div>
+                </OptionRow>
+              </div>
+
+              <button onClick={doExport} disabled={busy} className="w-full mt-6 h-16 rounded-2xl bg-emerald-600 text-white text-base font-black uppercase tracking-widest hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-3 disabled:opacity-50">
+                <span className={`material-symbols-outlined text-2xl ${busy ? 'animate-spin' : ''}`}>{busy ? 'progress_activity' : 'rocket_launch'}</span>
+                {busy ? '生成中…' : merge ? '生成并下载 PPT' : '生成并下载 ZIP'}
+              </button>
             </div>
 
-            <button onClick={doExport} disabled={busy} className="w-full mt-8 h-16 rounded-2xl bg-emerald-600 text-white text-base font-black uppercase tracking-widest hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-3 disabled:opacity-50">
-              <span className={`material-symbols-outlined text-2xl ${busy ? 'animate-spin' : ''}`}>{busy ? 'progress_activity' : 'rocket_launch'}</span>
-              {busy ? '生成中…' : merge ? '生成并下载 PPT' : '生成并下载 ZIP'}
-            </button>
-
-            <div className="flex items-center justify-between mt-6">
-              <button onClick={() => setStep('confirm')} className="text-outline/50 hover:text-[#2C2C2C] text-xs font-black uppercase tracking-wider flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">arrow_back</span>返回修改</button>
+            <div className="flex items-center justify-between mt-8 max-w-xl mx-auto">
+              <button onClick={() => setStep('entries')} className="text-outline/50 hover:text-[#2C2C2C] text-xs font-black uppercase tracking-wider flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">arrow_back</span>返回</button>
               <button onClick={reset} className="text-outline/50 hover:text-[#2C2C2C] text-xs font-black uppercase tracking-wider flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">restart_alt</span>重新开始</button>
             </div>
           </div>
