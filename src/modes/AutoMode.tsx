@@ -2,9 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { expandSongSections, paginateLyrics, resolveSlideColors, previewShadow } from '../lib/pptTheme';
 import type { BgOption, SongInput, DeckSettings } from '../lib/pptGenerator';
 import { BACKGROUND_OPTIONS, pollinationsBg } from '../lib/backgrounds';
-import { searchLibrary, saveToLibrary, libraryStats } from '../lib/songLibrary';
+import { searchLibrary, searchLibraryMulti, saveToLibrary, libraryStats } from '../lib/songLibrary';
+import type { LibrarySong } from '../lib/songLibrary';
 import { detectChorus, deriveBackground, parseEntryLine } from '../lib/autoStructure';
 import { exportMerged, exportZip } from '../lib/exporter';
+import { openLyricSheet } from '../lib/lyricSheet';
+import { PreviewModal } from './SlidePreview';
 
 type Step = 'count' | 'entries' | 'confirm' | 'export';
 
@@ -50,6 +53,22 @@ export default function AutoMode({ modeToggle }: { modeToggle: React.ReactNode }
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const libStats = useMemo(() => libraryStats(), [step]);
+  const [focusedEntry, setFocusedEntry] = useState<number | null>(null);
+  const entryResults = useMemo(
+    () => (focusedEntry !== null && entries[focusedEntry]?.trim())
+      ? searchLibraryMulti(entries[focusedEntry])
+      : [],
+    [focusedEntry, entries],
+  );
+
+  const handleLyricSheet = () => {
+    const valid = songs.filter((s) => s.title || s.lyrics);
+    const ok = openLyricSheet(
+      valid.map((s) => ({ title: s.title, englishTitle: s.englishTitle, lyrics: s.lyrics, englishLyrics: s.englishLyrics })),
+      deckName,
+    );
+    if (!ok) flash('❌ 请允许弹出窗口后重试');
+  };
 
   const flash = (msg: string, ms = 2800) => {
     setStatus(msg);
@@ -155,13 +174,21 @@ export default function AutoMode({ modeToggle }: { modeToggle: React.ReactNode }
       <header className="sticky top-0 z-30 bg-[#F4F1EE]/85 backdrop-blur-xl border-b border-[#E5E0DA]/70">
         <div className="max-w-[1100px] mx-auto px-6 lg:px-10 h-20 flex items-center justify-between gap-4">
           {modeToggle}
-          <div className="flex items-center gap-2">
-            {['count', 'entries', 'confirm', 'export'].map((s, i) => (
-              <div key={s} className={`flex items-center gap-2 ${i < 3 ? '' : ''}`}>
-                <div className={`w-7 h-7 rounded-full text-[11px] font-black flex items-center justify-center transition-all ${step === s ? 'bg-emerald-600 text-white' : ['count', 'entries', 'confirm', 'export'].indexOf(step) > i ? 'bg-emerald-100 text-emerald-600' : 'bg-[#E5E0DA] text-outline/40'}`}>{i + 1}</div>
-                {i < 3 && <div className="w-5 h-px bg-[#E5E0DA]" />}
-              </div>
-            ))}
+          <div className="flex items-center gap-3">
+            {(step === 'confirm' || step === 'export') && songs.length > 0 && (
+              <button onClick={handleLyricSheet} className="h-11 px-4 rounded-2xl bg-white border border-[#E5E0DA]/60 text-[11px] font-black uppercase tracking-widest hover:border-emerald-400 transition-all shadow-sm flex items-center gap-2" title="打印歌词单">
+                <span className="material-symbols-outlined text-base">print</span>
+                <span className="hidden sm:inline">歌词单</span>
+              </button>
+            )}
+            <div className="flex items-center gap-2">
+              {['count', 'entries', 'confirm', 'export'].map((s, i) => (
+                <div key={s} className={`flex items-center gap-2 ${i < 3 ? '' : ''}`}>
+                  <div className={`w-7 h-7 rounded-full text-[11px] font-black flex items-center justify-center transition-all ${step === s ? 'bg-emerald-600 text-white' : ['count', 'entries', 'confirm', 'export'].indexOf(step) > i ? 'bg-emerald-100 text-emerald-600' : 'bg-[#E5E0DA] text-outline/40'}`}>{i + 1}</div>
+                  {i < 3 && <div className="w-5 h-px bg-[#E5E0DA]" />}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </header>
@@ -196,9 +223,37 @@ export default function AutoMode({ modeToggle }: { modeToggle: React.ReactNode }
             <p className="text-emerald-600/70 font-bold mb-10 text-center text-[11px] uppercase tracking-wider">歌库已有 {libStats.total} 首 · {libStats.withLyrics} 首带歌词</p>
             <div className="space-y-3">
               {entries.map((v, i) => (
-                <div key={i} className="flex items-center gap-3 bg-white rounded-2xl border border-[#E5E0DA]/60 px-4 py-3 shadow-sm focus-within:border-emerald-500 transition-all">
-                  <span className="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 text-xs font-black flex items-center justify-center shrink-0">{i + 1}</span>
-                  <input value={v} onChange={(e) => setEntries((p) => p.map((x, j) => (j === i ? e.target.value : x)))} placeholder="例如:奇异恩典 / 约翰牛顿,或随便一句歌词…" className="flex-1 bg-transparent outline-none text-sm font-semibold" autoFocus={i === 0} />
+                <div key={i} className="relative">
+                  <div className="flex items-center gap-3 bg-white rounded-2xl border border-[#E5E0DA]/60 px-4 py-3 shadow-sm focus-within:border-emerald-500 transition-all">
+                    <span className="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 text-xs font-black flex items-center justify-center shrink-0">{i + 1}</span>
+                    <input
+                      value={v}
+                      onChange={(e) => setEntries((p) => p.map((x, j) => (j === i ? e.target.value : x)))}
+                      onFocus={() => setFocusedEntry(i)}
+                      onBlur={() => setTimeout(() => setFocusedEntry(null), 200)}
+                      placeholder="例如:奇异恩典 / 约翰牛顿,或随便一句歌词…"
+                      className="flex-1 bg-transparent outline-none text-sm font-semibold"
+                      autoFocus={i === 0}
+                    />
+                  </div>
+                  {focusedEntry === i && entryResults.length > 0 && (
+                    <div className="absolute z-20 left-0 right-0 mt-1 bg-white rounded-2xl border border-[#E5E0DA]/70 shadow-xl max-h-52 overflow-y-auto no-scrollbar">
+                      {entryResults.map((r: LibrarySong) => (
+                        <button
+                          key={r.id}
+                          onMouseDown={(e) => { e.preventDefault(); setEntries((p) => p.map((x, j) => (j === i ? r.title : x))); setFocusedEntry(null); }}
+                          className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-emerald-50 text-left transition-colors first:rounded-t-2xl last:rounded-b-2xl"
+                        >
+                          <span className="material-symbols-outlined text-emerald-500 text-[18px]">music_note</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-sm font-bold text-[#2C2C2C] truncate">{r.title || '未命名'}</span>
+                            {r.englishTitle && <span className="block text-[11px] text-outline/40 font-medium truncate">{r.englishTitle}</span>}
+                          </span>
+                          {!(r.lyrics || '').trim() && <span className="text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full shrink-0">无词</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -290,6 +345,7 @@ function ConfirmCard({ index, song, onPatch, onStructure, onReRoll, onPickPreset
   onPickPreset: (id: string, bg: BgOption) => void;
 }) {
   const [bgOpen, setBgOpen] = useState(false);
+  const [zoomIdx, setZoomIdx] = useState<number | null>(null);
   const preview = useMemo(() => {
     const exp = expandSongSections(song.lyrics || '', song.englishLyrics || '');
     const pages = paginateLyrics(exp.lyrics, exp.english, 2);
@@ -356,7 +412,7 @@ function ConfirmCard({ index, song, onPatch, onStructure, onReRoll, onPickPreset
         </div>
         <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-1">
           {preview.slides.map((sl, idx) => (
-            <div key={idx} className="relative shrink-0 w-44 aspect-video rounded-lg overflow-hidden flex items-center justify-center text-center p-3" style={{ ...bgStyle, containerType: 'inline-size' }}>
+            <div key={idx} className="relative shrink-0 w-44 aspect-video rounded-lg overflow-hidden flex items-center justify-center text-center p-3 cursor-pointer group/thumb" style={{ ...bgStyle, containerType: 'inline-size' }} onClick={() => setZoomIdx(idx)} title="点击放大 / 编辑">
               {song.bg?.url && <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-black/50 to-black/40" />}
               <div className="relative z-10 w-full space-y-0.5">
                 {sl.type === 'cover' ? (
@@ -373,10 +429,29 @@ function ConfirmCard({ index, song, onPatch, onStructure, onReRoll, onPickPreset
                   ))
                 )}
               </div>
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/0 group-hover/thumb:bg-black/30 transition-all">
+                <span className="material-symbols-outlined text-white text-2xl opacity-0 group-hover/thumb:opacity-100 transition-all">zoom_in</span>
+              </div>
             </div>
           ))}
         </div>
       </div>
+      {zoomIdx !== null && (
+        <PreviewModal
+          slides={preview.slides}
+          bg={song.bg}
+          pc={preview.pc}
+          start={zoomIdx}
+          lyric={song.lyrics}
+          english={song.englishLyrics}
+          lyricFontSize={48}
+          translationFontSize={24}
+          shadow={shadow}
+          onLyric={(v) => onPatch(song.id, { lyrics: v })}
+          onEnglish={(v) => onPatch(song.id, { englishLyrics: v })}
+          onClose={() => setZoomIdx(null)}
+        />
+      )}
     </div>
   );
 }

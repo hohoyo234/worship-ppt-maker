@@ -34,6 +34,9 @@ export interface BgOption {
 export interface SongInput {
   id: string;
   title: string;
+  /** Simplified-Chinese variants (primary title/lyrics hold Traditional). */
+  titleSc?: string;
+  lyricsSc?: string;
   englishTitle?: string;
   lyrics: string;
   englishLyrics?: string;

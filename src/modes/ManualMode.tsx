@@ -9,6 +9,8 @@ import {
 import { generateDeck, downloadBlob, toPinyin, type BgOption, type SongInput, type DeckSettings } from '../lib/pptGenerator';
 import { BACKGROUND_OPTIONS, pollinationsBg } from '../lib/backgrounds';
 import { saveToLibrary, searchLibraryMulti, type LibrarySong } from '../lib/songLibrary';
+import { openLyricSheet } from '../lib/lyricSheet';
+import { SlideView, PreviewModal, type PreviewSlide } from './SlidePreview';
 
 const LS_KEY = 'worship_ppt_maker_v1';
 
@@ -76,10 +78,19 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
+  const [lang, setLang] = useState<'tc' | 'sc'>(() => (localStorage.getItem('lib_lang') as 'tc' | 'sc') || 'tc');
+  const [zoom, setZoom] = useState<number | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
 
   const activeSong = songs.find((s) => s.id === activeId) || songs[0];
   const allBgs = [...BACKGROUND_OPTIONS, ...customBgs];
+
+  // 繁/简 — primary title/lyrics hold Traditional, *Sc hold Simplified.
+  const setLanguage = (l: 'tc' | 'sc') => { setLang(l); try { localStorage.setItem('lib_lang', l); } catch {} };
+  const dTitle = (s: SongInput) => (lang === 'sc' ? s.titleSc || s.title : s.title) || '';
+  const dLyrics = (s: SongInput) => (lang === 'sc' ? s.lyricsSc || s.lyrics : s.lyrics) || '';
+  const setTitle = (id: string, v: string) => patchSong(id, lang === 'sc' ? { titleSc: v } : { title: v });
+  const setLyrics = (id: string, v: string) => patchSong(id, lang === 'sc' ? { lyricsSc: v } : { lyrics: v });
 
   useEffect(() => {
     try {
@@ -106,7 +117,7 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
   const [songQuery, setSongQuery] = useState('');
   const songResults = useMemo(() => searchLibraryMulti(songQuery), [songQuery]);
   const addFromLibrary = (e: LibrarySong) => {
-    const s = newSong({ title: e.title, englishTitle: e.englishTitle || '', lyrics: e.lyrics || '', englishLyrics: e.englishLyrics || '' });
+    const s = newSong({ title: e.title, titleSc: e.titleSc, englishTitle: e.englishTitle || '', lyrics: e.lyrics || '', lyricsSc: e.lyricsSc, englishLyrics: e.englishLyrics || '' });
     setSongs((prev) => [...prev, s]);
     setActiveId(s.id);
     setSongQuery('');
@@ -199,68 +210,16 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
   // 10"-wide design space is P/720 of the slide width = (P/7.2)cqw.
   const cqw = (pt: number) => `${(pt / 7.2).toFixed(2)}cqw`;
 
-  // Open a printable A4 lyric sheet (all songs flow continuously). The user can
-  // adjust the font size / columns live, then print or save as PDF.
-  const openLyricSheet = () => {
+  const handleLyricSheet = () => {
     const valid = songs.filter((s) => s.title.trim() || s.lyrics.trim());
     if (!valid.length) { flash('❌ 请先输入歌名或歌词'); return; }
-    const esc = (t: string) => (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const blocks = valid.map((s, i) => {
-      const exp = expandSongSections(s.lyrics || '', s.englishLyrics || '');
-      const cn = exp.lyrics.split('\n');
-      const en = exp.english.split('\n').filter((l) => l.trim());
-      let ti = 0;
-      const lines: string[] = [];
-      for (const l of cn) {
-        if (!l.trim()) { lines.push('<div class="gap"></div>'); continue; }
-        const e = en[ti++] || '';
-        lines.push(`<div class="ln"><span class="cn">${esc(l)}</span>${e ? `<span class="en">${esc(e)}</span>` : ''}</div>`);
-      }
-      return `<section class="song"><h2>${i + 1}. ${esc(s.title || '未命名')}${s.englishTitle ? ` <small>${esc(s.englishTitle)}</small>` : ''}</h2>${lines.join('')}</section>`;
-    }).join('');
-    const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>歌词单 — ${esc(deckName || 'Worship')}</title>
-<style>
-  :root{ --size:16pt; --cols:1; }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:'Microsoft YaHei','PingFang SC','Heiti SC',sans-serif;color:#111;background:#eceae7}
-  .bar{position:sticky;top:0;z-index:5;display:flex;gap:18px;align-items:center;padding:12px 22px;background:#1a1a1a;color:#fff;font-size:13px;flex-wrap:wrap}
-  .bar strong{font-size:14px;letter-spacing:.05em}
-  .bar label{display:flex;gap:8px;align-items:center;cursor:pointer}
-  .bar input[type=range]{accent-color:#10b981}
-  .bar select{border-radius:6px;padding:3px 6px}
-  .bar button{margin-left:auto;background:#10b981;color:#fff;border:0;border-radius:9px;padding:9px 18px;font-weight:800;cursor:pointer}
-  .bar button:hover{background:#059669}
-  .page{background:#fff;width:21cm;margin:18px auto;padding:1.5cm 1.5cm;box-shadow:0 3px 16px rgba(0,0,0,.15)}
-  .doc{columns:var(--cols);column-gap:1cm}
-  .song{break-inside:avoid;margin:0 0 16px}
-  .song h2{font-size:calc(var(--size) * 1.22);margin:0 0 6px;border-bottom:2px solid #10b981;padding-bottom:3px}
-  .song h2 small{font-weight:500;color:#6b7280;font-size:calc(var(--size) * 0.75)}
-  .ln{font-size:var(--size);line-height:1.5;margin:1px 0}
-  .ln .en{display:block;font-size:calc(var(--size) * 0.62);color:#555;font-style:italic;line-height:1.25}
-  .gap{height:calc(var(--size) * 0.7)}
-  @media print{ .bar{display:none} body{background:#fff} .page{box-shadow:none;margin:0;width:auto;padding:0} }
-  @page{size:A4;margin:1.4cm}
-</style></head>
-<body>
-<div class="bar">
-  <strong>📄 歌词单 · ${valid.length} 首</strong>
-  <label>字号 <input id="sz" type="range" min="9" max="30" value="16"><span id="szv">16</span>pt</label>
-  <label>栏数 <select id="cols"><option value="1">1 栏</option><option value="2">2 栏</option></select></label>
-  <label><input id="tr" type="checkbox" checked> 显示翻译</label>
-  <button onclick="window.print()">🖨 打印 / 存为 PDF</button>
-</div>
-<div class="page"><div class="doc">${blocks}</div></div>
-<script>
-  var r=document.documentElement,sz=document.getElementById('sz'),szv=document.getElementById('szv');
-  sz.oninput=function(){r.style.setProperty('--size',sz.value+'pt');szv.textContent=sz.value;};
-  document.getElementById('cols').onchange=function(e){r.style.setProperty('--cols',e.target.value);};
-  document.getElementById('tr').onchange=function(e){var d=e.target.checked?'':'none';var ns=document.querySelectorAll('.en');for(var i=0;i<ns.length;i++)ns[i].style.display=d;};
-<\/script>
-</body></html>`;
-    const w = window.open('', '_blank', 'width=900,height=1040');
-    if (!w) { flash('❌ 请允许弹出窗口后重试'); return; }
-    w.document.write(html);
-    w.document.close();
+    const langSongs = valid.map((s) => ({
+      title: dTitle(s) || s.title,
+      englishTitle: s.englishTitle,
+      lyrics: dLyrics(s) || s.lyrics,
+      englishLyrics: s.englishLyrics,
+    }));
+    if (!openLyricSheet(langSongs, deckName)) flash('❌ 请允许弹出窗口后重试');
   };
 
   return (
@@ -273,7 +232,14 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
               <span className="material-symbols-outlined text-outline/30 text-[18px]">edit_document</span>
               <input value={deckName} onChange={(e) => setDeckName(e.target.value)} placeholder="文件名" className="bg-transparent outline-none text-xs font-bold w-36" />
             </div>
-            <button onClick={openLyricSheet} className="h-12 px-4 rounded-2xl bg-white border border-[#E5E0DA]/60 text-[11px] font-black uppercase tracking-widest hover:border-emerald-400 transition-all shadow-sm flex items-center gap-2" title="把歌词排成 A4 歌词单，可打印或存 PDF">
+            <div className="flex bg-white rounded-2xl border border-[#E5E0DA]/60 shadow-sm overflow-hidden h-12">
+              {(['tc', 'sc'] as const).map((l) => (
+                <button key={l} onClick={() => setLanguage(l)} className={`px-4 h-full text-[11px] font-black tracking-wider transition-all ${lang === l ? 'bg-emerald-600 text-white' : 'text-outline/50 hover:text-[#2C2C2C]'}`}>
+                  {l === 'tc' ? '繁' : '简'}
+                </button>
+              ))}
+            </div>
+            <button onClick={handleLyricSheet} className="h-12 px-4 rounded-2xl bg-white border border-[#E5E0DA]/60 text-[11px] font-black uppercase tracking-widest hover:border-emerald-400 transition-all shadow-sm flex items-center gap-2" title="把歌词排成 A4 歌词单，可打印或存 PDF">
               <span className="material-symbols-outlined text-lg">print</span>
               <span className="hidden sm:inline">歌词单</span>
             </button>
@@ -320,7 +286,7 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
               {songs.map((s, i) => (
                 <div key={s.id} onClick={() => setActiveId(s.id)} className={`group flex items-center gap-3 px-3 py-2.5 rounded-2xl cursor-pointer transition-all ${s.id === activeId ? 'bg-emerald-600 text-white shadow-md' : 'hover:bg-[#F9F7F5] text-[#2C2C2C]'}`}>
                   <span className={`text-[10px] font-black w-5 ${s.id === activeId ? 'text-white/60' : 'text-outline/30'}`}>{i + 1}</span>
-                  <span className="flex-1 text-sm font-bold truncate">{s.title || '未命名歌曲'}</span>
+                  <span className="flex-1 text-sm font-bold truncate">{dTitle(s) || '未命名歌曲'}</span>
                   {songs.length > 1 && (
                     <button onClick={(e) => { e.stopPropagation(); removeSong(s.id); }} className={`material-symbols-outlined text-[16px] opacity-0 group-hover:opacity-100 transition-opacity ${s.id === activeId ? 'text-white/80' : 'text-red-400'}`}>delete</button>
                   )}
@@ -332,10 +298,10 @@ export default function ManualMode({ modeToggle }: { modeToggle: React.ReactNode
           <div className="bg-white rounded-3xl border border-[#E5E0DA]/50 p-5 shadow-sm space-y-4">
             <h2 className="text-[10px] font-black uppercase tracking-[0.25em] text-outline/50 px-1">歌曲内容</h2>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="歌名"><input value={activeSong.title} onChange={(e) => patchSong(activeSong.id, { title: e.target.value })} placeholder="奇异恩典" className="ed-input" /></Field>
+              <Field label="歌名"><input value={dTitle(activeSong)} onChange={(e) => setTitle(activeSong.id, e.target.value)} placeholder="奇异恩典" className="ed-input" /></Field>
               <Field label="英文名 / 副标题"><input value={activeSong.englishTitle} onChange={(e) => patchSong(activeSong.id, { englishTitle: e.target.value })} placeholder="Amazing Grace" className="ed-input" /></Field>
             </div>
-            <Field label="歌词（每行一句，空行 = 换页）"><textarea value={activeSong.lyrics} onChange={(e) => patchSong(activeSong.id, { lyrics: e.target.value })} rows={7} placeholder={'奇异恩典 何等甘甜\n我罪已得赦免'} className="ed-input resize-none leading-relaxed" /></Field>
+            <Field label="歌词（每行一句，空行 = 换页）"><textarea value={dLyrics(activeSong)} onChange={(e) => setLyrics(activeSong.id, e.target.value)} rows={7} placeholder={'奇异恩典 何等甘甜\n我罪已得赦免'} className="ed-input resize-none leading-relaxed" /></Field>
             <Field label="翻译 / 对照歌词（按行对应，可留空）"><textarea value={activeSong.englishLyrics} onChange={(e) => patchSong(activeSong.id, { englishLyrics: e.target.value })} rows={5} placeholder={'Amazing grace how sweet the sound'} className="ed-input resize-none leading-relaxed" /></Field>
             <p className="text-[10px] text-outline/40 px-1 leading-relaxed">💡 提示：用 <code className="bg-[#F9F7F5] px-1 rounded">[副歌]</code> 标记段落，重复时只写一次标记即可自动展开。</p>
           </div>
